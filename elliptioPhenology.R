@@ -9,7 +9,8 @@
                 "boot",
                 "waterData",
                 "piecewiseSEM",
-                "AICcmodavg"
+                "AICcmodavg",
+                "reshape"
                 )
 # Load them
   lapply(packages, library, character.only = TRUE)
@@ -28,7 +29,7 @@
   # Change date columnn name to match the others
     names(usgs)[3] = 'date'
     
-# NOAA climate data
+# NOAA climate data from www.ncdc.noaa.gov/cdo-web/
   # Read in the data file
     noaa = read.csv('noaaClimateData.csv')
   # Compute daily means from max and min
@@ -127,6 +128,11 @@
                            data=ellip,
                            family = 'binomial'
                            )  
+  pmods[[8]] = lme4::glmer(formula = gametes~(1|tag),
+                           data=ellip,
+                           family = 'binomial'
+                           ) 
+  
 
 # Name the models in the list  
   # Loop through the list and name each
@@ -139,11 +145,6 @@
                       replacement = '',
                       x = names(pmods)
                       )
-  # Use gsub to eliminate random effect from names
-  names(pmods) = gsub(pattern = ' + (1 | tag)',
-                      replacement = '',
-                      x = names(pmods)
-                      )  
   
 # Make a model selection table for the models
   tab = aictab(pmods, names(pmods))
@@ -151,11 +152,22 @@
   
 # Extract R-squared values based on:
 # Nakagawa, S., and H. Schielzeth. 2013. A general
-#      and simple method for obtaining R2 from 
+#      and simple method for obtaining R2 from
 #      generalized linear mixed-effects models.
 #      Methods in Ecology and Evolution 4(2):133-142.
-  rsquared(pmods)
+  rtab = rsquared(pmods)
   
+# Merge the AIC table with the R-sqaured values
+  rtab$Modnames = rownames(rtab)
+  mtab = merge(tab, rtab[,c(5,9)], by='Modnames')
+  
+# Write model selection stats to a file
+  write.table(x=mtab,
+              file='modelSelection.csv',
+              row.names = FALSE,
+              quote=FALSE,
+              sep = ','
+              )
   
 # Model predictions -----
 
@@ -200,7 +212,8 @@
   # Raw data and plotting region set up
   plot(x=ellip$sdd,
        y=ellip$gametes,
-       pch=21,bg=rgb(.1,.1,.1,.05),
+       pch=21,bg=rgb(.1,.1,.1, 0),
+       col=rgb(.1,.1,.1, 0),
        cex=2, cex.lab=1.10,
        xlab='Accumulated thermal units (ATU)',
        ylab='p ( gametes | ATU )',
@@ -212,19 +225,19 @@
   polygon(xx, yy, col='gray87', border='gray87')
   
   # Lines for mean and 95% CI of predictions
-  lines(newd$sdd, lpred, col='red', lwd=2, lty=2)
-  lines(newd$sdd, upred, col='red', lwd=2, lty=2)
-  lines(newd$sdd, pred, col='blue', lwd=2, lty=1)
+  # lines(newd$sdd, lpred, col='red', lwd=2, lty=2)
+  # lines(newd$sdd, upred, col='red', lwd=2, lty=2)
+  lines(newd$sdd, pred, col='gray40', lwd=2, lty=1)
   
-  # Add white points to cover up old points and lines
-  points(x=ellip$sdd, y=ellip$gametes, pch=21, bg='white', cex=2)
+  # # Add white points to cover up old points and lines
+  # points(x=ellip$sdd, y=ellip$gametes, pch=21, bg='white', cex=2)
 
-  # Add transparent points to increase opacity for
-  # larger sample sizes
-  points(x=ellip$sdd,
-       y=ellip$gametes,
-       pch=21,bg=rgb(0.1,0.1,0.1,0.05),
-       cex=2)
+  # # Add transparent points to increase opacity for
+  # # larger sample sizes
+  # points(x=ellip$sdd,
+  #      y=ellip$gametes,
+  #      pch=21,bg=rgb(0.1,0.1,0.1,0.05),
+  #      cex=2)
   
   # X-axis tick labels
   axis(side=1,
@@ -254,7 +267,8 @@
     points(x=(pr[,1]-mean(ellip$dd))/sd(ellip$dd),
            y=pr[,3],
            pch=21,
-           bg='white'
+           bg='black',
+           cex=1.5
            )
     
   # Add the box to the outside
@@ -262,4 +276,63 @@
     
   
   
+  
+# Summary table for sampling events ----
+# Get numbers of newly marked individuals,
+# recaptured individuals, and total numbers
+# for each sampling date.
+  # Tabulate ndividual capture histories    
+    caps <- reshape::cast(ellip, tag~date)
+  # Create a copy and assign recaptures
+    caps2 <- caps
+    # For each mussel, if it was collected
+    # in each time period and was previously
+    # collected, then give it a one for recap
+    for(i in 3:ncol(caps)){
+      for(t in 1:nrow(caps)){
+        if(caps[t,i]==1 & sum(caps[t, 2:(i-1)]) > 0){
+          caps2[t, i] <- 1
+        } else {
+          caps2[t,i] <- 0
+        }
+      }
+    }  
+    # Remove captures from first time period
+    caps2[,2] <- 0
+    
+  # Add up the capture and recapture matrices  
+    caps3 <- caps[,2:ncol(caps)]+caps2[,2:ncol(caps2)]
+    
+  # Use the sum of caps and recaps to get 
+  # numbers of marked and recaptured individuals 
+  # in each time period, along with total
+    cap <- c()
+    recap <- c() 
+    total <- c()
+    for(i in 1:ncol(caps3)){
+    cap[i] <- length(caps3[ ,i][caps3[,i]==1])
+    recap[i] <- length(caps3[ ,i][caps3[,i]==2])
+    total[i] <- sum(cap[i], recap[i])
+    }
+  
+  # Put this all in a dataframe
+    recaps <- data.frame(date=as.Date(colnames(caps)[2:ncol(caps)]),
+                         cap=cap,
+                         recap=recap,
+                         total=total
+                         )
+
+    
+# Summarize conditions on each day
+  merged <- merge(ellip, recaps, by='date', all.x = T)  
+    
+  tempdf <- merged[,c(1,17,28,29,30,37:39)]  
+  tempdf$date <- as.character(tempdf$date)
+  sum.table <- ddply(tempdf,
+                      .(date),
+                      numcolwise(unique)
+                      )
+  write.csv(sum.table, 'summaryStats.csv')
+  
+    
   
