@@ -205,6 +205,8 @@
   lpred = boot::inv.logit(lint+lb1*newd$sdd+lb2*newd$sdd^2)
   upred = boot::inv.logit(uint+ub1*newd$sdd+ub2*newd$sdd^2)  
   
+jpeg(filename='Figure2.jpeg', height = 2160, 
+     width = 3000, res=350)  
 # Plot raw data and predictions
   # Graphical parameters
   par(mar=c(5,5,1,1))
@@ -273,7 +275,7 @@
     
   # Add the box to the outside
     box()
-    
+  dev.off()  
   
   
   
